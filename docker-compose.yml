@@ -1,0 +1,28 @@
+version: '3'
+services:
+  producer:
+    # build:
+    #   context: ./producer
+    image: loskiorama/challengeproducer    
+    depends_on:
+      - consumer
+
+  consumer:
+      
+    # build:
+    #   context: ./consumer
+    image: loskiorama/challengeconsumer
+    ports:
+      - 80:80
+    depends_on:
+      - db    
+    # deploy:
+    #   replicas: 5        
+
+  db:
+    # build:
+    #   context: ./db
+    image: loskiorama/challengedb    
+    ports:
+      - 5432:5432
+    

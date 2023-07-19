@@ -1,0 +1,495 @@
+AWSTemplateFormatVersion: 2010-09-09
+Resources:
+  CloudMap:
+    Properties:
+      Description: Service Map for Docker Compose project devopstest
+      Name: devopstest.local
+      Vpc: vpc-01f7a707a1a268f94
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+  Cluster:
+    Properties:
+      ClusterName: devopstest
+      Tags:
+      - Key: com.docker.compose.project
+        Value: devopstest
+    Type: AWS::ECS::Cluster
+  ConsumerService:
+    DependsOn:
+    - ConsumerTCP80Listener
+    - DbService
+    Properties:
+      Cluster:
+        Fn::GetAtt:
+        - Cluster
+        - Arn
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DeploymentController:
+        Type: ECS
+      DesiredCount: 5
+      LaunchType: FARGATE
+      LoadBalancers:
+      - ContainerName: consumer
+        ContainerPort: 80
+        TargetGroupArn:
+          Ref: ConsumerTCP80TargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+          - Ref: DefaultNetwork
+          Subnets:
+          - subnet-0e544470480562082
+          - subnet-030143cc3a75f6450
+          - subnet-0d18019adec0fa9fd
+          - subnet-0daece14acb1e752f
+          - subnet-05b7230bdb34f102a
+          - subnet-0badee6fe6fe91a58
+      PlatformVersion: 1.4.0
+      PropagateTags: SERVICE
+      SchedulingStrategy: REPLICA
+      ServiceRegistries:
+      - RegistryArn:
+          Fn::GetAtt:
+          - ConsumerServiceDiscoveryEntry
+          - Arn
+      Tags:
+      - Key: com.docker.compose.project
+        Value: devopstest
+      - Key: com.docker.compose.service
+        Value: consumer
+      TaskDefinition:
+        Ref: ConsumerTaskDefinition
+    Type: AWS::ECS::Service
+  ConsumerServiceDiscoveryEntry:
+    Properties:
+      Description: '"consumer" service discovery entry in Cloud Map'
+      DnsConfig:
+        DnsRecords:
+        - TTL: 60
+          Type: A
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Name: consumer
+      NamespaceId:
+        Ref: CloudMap
+    Type: AWS::ServiceDiscovery::Service
+  ConsumerTCP80Listener:
+    Properties:
+      DefaultActions:
+      - ForwardConfig:
+          TargetGroups:
+          - TargetGroupArn:
+              Ref: ConsumerTCP80TargetGroup
+        Type: forward
+      LoadBalancerArn:
+        Ref: LoadBalancer
+      Port: 80
+      Protocol: TCP
+    Type: AWS::ElasticLoadBalancingV2::Listener
+  ConsumerTCP80TargetGroup:
+    Properties:
+      Port: 80
+      Protocol: TCP
+      Tags:
+      - Key: com.docker.compose.project
+        Value: devopstest
+      TargetType: ip
+      VpcId: vpc-01f7a707a1a268f94
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+  ConsumerTaskDefinition:
+    Properties:
+      ContainerDefinitions:
+      - Command:
+        - us-east-1.compute.internal
+        - devopstest.local
+        Essential: false
+        Image: docker/ecs-searchdomain-sidecar:1.0
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group:
+              Ref: LogGroup
+            awslogs-region:
+              Ref: AWS::Region
+            awslogs-stream-prefix: devopstest
+        Name: Consumer_ResolvConf_InitContainer
+      - DependsOn:
+        - Condition: SUCCESS
+          ContainerName: Consumer_ResolvConf_InitContainer
+        Essential: true
+        Image: docker.io/loskiorama/challengeconsumer:latest@sha256:ed74b45a5cf9f5bd13ac02287e3871153b3ddbe2257f6cd20706aeb84519b30a
+        LinuxParameters: {}
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group:
+              Ref: LogGroup
+            awslogs-region:
+              Ref: AWS::Region
+            awslogs-stream-prefix: devopstest
+        Name: consumer
+        PortMappings:
+        - ContainerPort: 80
+          HostPort: 80
+          Protocol: tcp
+      Cpu: "256"
+      ExecutionRoleArn:
+        Ref: ConsumerTaskExecutionRole
+      Family: devopstest-consumer
+      Memory: "512"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+      - FARGATE
+    Type: AWS::ECS::TaskDefinition
+  ConsumerTaskExecutionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Condition: {}
+          Effect: Allow
+          Principal:
+            Service: ecs-tasks.amazonaws.com
+        Version: 2012-10-17
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Tags:
+      - Key: com.docker.compose.project
+        Value: devopstest
+      - Key: com.docker.compose.service
+        Value: consumer
+    Type: AWS::IAM::Role
+  DbService:
+    DependsOn:
+    - DbTCP5432Listener
+    Properties:
+      Cluster:
+        Fn::GetAtt:
+        - Cluster
+        - Arn
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DeploymentController:
+        Type: ECS
+      DesiredCount: 1
+      LaunchType: FARGATE
+      LoadBalancers:
+      - ContainerName: db
+        ContainerPort: 5432
+        TargetGroupArn:
+          Ref: DbTCP5432TargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+          - Ref: DefaultNetwork
+          Subnets:
+          - subnet-0e544470480562082
+          - subnet-030143cc3a75f6450
+          - subnet-0d18019adec0fa9fd
+          - subnet-0daece14acb1e752f
+          - subnet-05b7230bdb34f102a
+          - subnet-0badee6fe6fe91a58
+      PlatformVersion: 1.4.0
+      PropagateTags: SERVICE
+      SchedulingStrategy: REPLICA
+      ServiceRegistries:
+      - RegistryArn:
+          Fn::GetAtt:
+          - DbServiceDiscoveryEntry
+          - Arn
+      Tags:
+      - Key: com.docker.compose.project
+        Value: devopstest
+      - Key: com.docker.compose.service
+        Value: db
+      TaskDefinition:
+        Ref: DbTaskDefinition
+    Type: AWS::ECS::Service
+  DbServiceDiscoveryEntry:
+    Properties:
+      Description: '"db" service discovery entry in Cloud Map'
+      DnsConfig:
+        DnsRecords:
+        - TTL: 60
+          Type: A
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Name: db
+      NamespaceId:
+        Ref: CloudMap
+    Type: AWS::ServiceDiscovery::Service
+  DbTCP5432Listener:
+    Properties:
+      DefaultActions:
+      - ForwardConfig:
+          TargetGroups:
+          - TargetGroupArn:
+              Ref: DbTCP5432TargetGroup
+        Type: forward
+      LoadBalancerArn:
+        Ref: LoadBalancer
+      Port: 5432
+      Protocol: TCP
+    Type: AWS::ElasticLoadBalancingV2::Listener
+  DbTCP5432TargetGroup:
+    Properties:
+      Port: 5432
+      Protocol: TCP
+      Tags:
+      - Key: com.docker.compose.project
+        Value: devopstest
+      TargetType: ip
+      VpcId: vpc-01f7a707a1a268f94
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+  DbTaskDefinition:
+    Properties:
+      ContainerDefinitions:
+      - Command:
+        - us-east-1.compute.internal
+        - devopstest.local
+        Essential: false
+        Image: docker/ecs-searchdomain-sidecar:1.0
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group:
+              Ref: LogGroup
+            awslogs-region:
+              Ref: AWS::Region
+            awslogs-stream-prefix: devopstest
+        Name: Db_ResolvConf_InitContainer
+      - DependsOn:
+        - Condition: SUCCESS
+          ContainerName: Db_ResolvConf_InitContainer
+        Essential: true
+        Image: docker.io/loskiorama/challengedb:latest@sha256:3e40080feb4816121eda5a73b66825060dbc19abd5434b65381719dda6873292
+        LinuxParameters: {}
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group:
+              Ref: LogGroup
+            awslogs-region:
+              Ref: AWS::Region
+            awslogs-stream-prefix: devopstest
+        Name: db
+        PortMappings:
+        - ContainerPort: 5432
+          HostPort: 5432
+          Protocol: tcp
+      Cpu: "256"
+      ExecutionRoleArn:
+        Ref: DbTaskExecutionRole
+      Family: devopstest-db
+      Memory: "512"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+      - FARGATE
+    Type: AWS::ECS::TaskDefinition
+  DbTaskExecutionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Condition: {}
+          Effect: Allow
+          Principal:
+            Service: ecs-tasks.amazonaws.com
+        Version: 2012-10-17
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Tags:
+      - Key: com.docker.compose.project
+        Value: devopstest
+      - Key: com.docker.compose.service
+        Value: db
+    Type: AWS::IAM::Role
+  Default80Ingress:
+    Properties:
+      CidrIp: 0.0.0.0/0
+      Description: consumer:80/tcp on default network
+      FromPort: 80
+      GroupId:
+        Ref: DefaultNetwork
+      IpProtocol: TCP
+      ToPort: 80
+    Type: AWS::EC2::SecurityGroupIngress
+  Default5432Ingress:
+    Properties:
+      CidrIp: 0.0.0.0/0
+      Description: db:5432/tcp on default network
+      FromPort: 5432
+      GroupId:
+        Ref: DefaultNetwork
+      IpProtocol: TCP
+      ToPort: 5432
+    Type: AWS::EC2::SecurityGroupIngress
+  DefaultNetwork:
+    Properties:
+      GroupDescription: devopstest Security Group for default network
+      Tags:
+      - Key: com.docker.compose.project
+        Value: devopstest
+      - Key: com.docker.compose.network
+        Value: devopstest_default
+      VpcId: vpc-01f7a707a1a268f94
+    Type: AWS::EC2::SecurityGroup
+  DefaultNetworkIngress:
+    Properties:
+      Description: Allow communication within network default
+      GroupId:
+        Ref: DefaultNetwork
+      IpProtocol: "-1"
+      SourceSecurityGroupId:
+        Ref: DefaultNetwork
+    Type: AWS::EC2::SecurityGroupIngress
+  LoadBalancer:
+    Properties:
+      LoadBalancerAttributes:
+      - Key: load_balancing.cross_zone.enabled
+        Value: "true"
+      Scheme: internet-facing
+      Subnets:
+      - subnet-0e544470480562082
+      - subnet-030143cc3a75f6450
+      - subnet-0d18019adec0fa9fd
+      - subnet-0daece14acb1e752f
+      - subnet-05b7230bdb34f102a
+      - subnet-0badee6fe6fe91a58
+      Tags:
+      - Key: com.docker.compose.project
+        Value: devopstest
+      Type: network
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+  LogGroup:
+    Properties:
+      LogGroupName: /docker-compose/devopstest
+    Type: AWS::Logs::LogGroup
+  ProducerService:
+    DependsOn:
+    - ConsumerService
+    Properties:
+      Cluster:
+        Fn::GetAtt:
+        - Cluster
+        - Arn
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DeploymentController:
+        Type: ECS
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+          - Ref: DefaultNetwork
+          Subnets:
+          - subnet-0e544470480562082
+          - subnet-030143cc3a75f6450
+          - subnet-0d18019adec0fa9fd
+          - subnet-0daece14acb1e752f
+          - subnet-05b7230bdb34f102a
+          - subnet-0badee6fe6fe91a58
+      PlatformVersion: 1.4.0
+      PropagateTags: SERVICE
+      SchedulingStrategy: REPLICA
+      ServiceRegistries:
+      - RegistryArn:
+          Fn::GetAtt:
+          - ProducerServiceDiscoveryEntry
+          - Arn
+      Tags:
+      - Key: com.docker.compose.project
+        Value: devopstest
+      - Key: com.docker.compose.service
+        Value: producer
+      TaskDefinition:
+        Ref: ProducerTaskDefinition
+    Type: AWS::ECS::Service
+  ProducerServiceDiscoveryEntry:
+    Properties:
+      Description: '"producer" service discovery entry in Cloud Map'
+      DnsConfig:
+        DnsRecords:
+        - TTL: 60
+          Type: A
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Name: producer
+      NamespaceId:
+        Ref: CloudMap
+    Type: AWS::ServiceDiscovery::Service
+  ProducerTaskDefinition:
+    Properties:
+      ContainerDefinitions:
+      - Command:
+        - us-east-1.compute.internal
+        - devopstest.local
+        Essential: false
+        Image: docker/ecs-searchdomain-sidecar:1.0
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group:
+              Ref: LogGroup
+            awslogs-region:
+              Ref: AWS::Region
+            awslogs-stream-prefix: devopstest
+        Name: Producer_ResolvConf_InitContainer
+      - DependsOn:
+        - Condition: SUCCESS
+          ContainerName: Producer_ResolvConf_InitContainer
+        Essential: true
+        Image: docker.io/loskiorama/challengeproducer:latest@sha256:cc5d939778950451695ebfd953d7a206f1118da1b99c12cd070da0e4ae42a639
+        LinuxParameters: {}
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group:
+              Ref: LogGroup
+            awslogs-region:
+              Ref: AWS::Region
+            awslogs-stream-prefix: devopstest
+        Name: producer
+      Cpu: "256"
+      ExecutionRoleArn:
+        Ref: ProducerTaskExecutionRole
+      Family: devopstest-producer
+      Memory: "512"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+      - FARGATE
+    Type: AWS::ECS::TaskDefinition
+  ProducerTaskExecutionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Condition: {}
+          Effect: Allow
+          Principal:
+            Service: ecs-tasks.amazonaws.com
+        Version: 2012-10-17
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Tags:
+      - Key: com.docker.compose.project
+        Value: devopstest
+      - Key: com.docker.compose.service
+        Value: producer
+    Type: AWS::IAM::Role
